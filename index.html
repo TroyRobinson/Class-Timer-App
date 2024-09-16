@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Timer App</title>
+    <!-- Load Tailwind CSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load React and ReactDOM via CDN -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Load Babel for JSX transformation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Load SortableJS for drag and drop -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        function App() {
+            const [timers, setTimers] = React.useState([
+                { id: 1, title: "Class Activity", time: 600, remainingTime: 600, status: "pending" }
+            ]);
+            const [currentTimerId, setCurrentTimerId] = React.useState(1); // Initialize to first timer
+            const [isPlaying, setIsPlaying] = React.useState(true);
+            const [isEditing, setIsEditing] = React.useState(false);
+            const [addButtonClicked, setAddButtonClicked] = React.useState(false); // State for Add button click
+
+            const timersRef = React.useRef(null);
+
+            // Helper function to get the first active (non-completed) timer
+            const getFirstActiveTimer = (timersList) => {
+                return timersList.find(timer => timer.status !== 'completed') || null;
+            };
+
+            // Initialize SortableJS
+            React.useEffect(() => {
+                let sortable = null;
+                if (timersRef.current) {
+                    sortable = new Sortable(timersRef.current, {
+                        animation: 150,
+                        handle: '.handle',
+                        onEnd: function (evt) {
+                            setTimers(prevTimers => {
+                                const newTimers = [...prevTimers];
+                                const [removed] = newTimers.splice(evt.oldIndex, 1);
+                                newTimers.splice(evt.newIndex, 0, removed);
+                                // Update currentTimerId to the first active timer
+                                const firstActive = getFirstActiveTimer(newTimers);
+                                setCurrentTimerId(firstActive ? firstActive.id : null);
+                                return newTimers;
+                            });
+                        },
+                    });
+                }
+                return () => {
+                    if (sortable) {
+                        sortable.destroy();
+                    }
+                };
+            }, []);
+
+            // Function to add a new timer with Add button color change
+            const addTimer = () => {
+                setAddButtonClicked(true); // Trigger color change
+                const newTimer = {
+                    id: Date.now(),
+                    title: "Class Activity",
+                    time: 600,
+                    remainingTime: 600,
+                    status: "pending"
+                };
+                setTimers(prevTimers => {
+                    const updatedTimers = [...prevTimers, newTimer];
+                    // If there was no active timer, set the new timer as active
+                    if (!getFirstActiveTimer(updatedTimers)) {
+                        setCurrentTimerId(newTimer.id);
+                        setIsPlaying(true);
+                    }
+                    return updatedTimers;
+                });
+                // Reset the button color after 200ms
+                setTimeout(() => setAddButtonClicked(false), 200);
+            };
+
+            // Function to delete a timer
+            const deleteTimer = (id) => {
+                setTimers(prevTimers => {
+                    const updatedTimers = prevTimers.filter(timer => timer.id !== id);
+                    // If the deleted timer was the current timer, set to first active timer
+                    if (id === currentTimerId) {
+                        const firstActive = getFirstActiveTimer(updatedTimers);
+                        setCurrentTimerId(firstActive ? firstActive.id : null);
+                        setIsPlaying(!!firstActive);
+                    }
+                    return updatedTimers;
+                });
+            };
+
+            // Function to update a timer
+            const updateTimer = (id, newData) => {
+                setTimers(prevTimers => {
+                    const updatedTimers = prevTimers.map(timer => timer.id === id ? { ...timer, ...newData } : timer);
+                    // If a timer is updated to 'completed' and it was the current timer, move to next
+                    const updatedTimer = updatedTimers.find(timer => timer.id === id);
+                    if (updatedTimer && updatedTimer.status === 'completed' && id === currentTimerId) {
+                        const firstActive = getFirstActiveTimer(updatedTimers);
+                        setCurrentTimerId(firstActive ? firstActive.id : null);
+                        setIsPlaying(!!firstActive);
+                    }
+                    return updatedTimers;
+                });
+            };
+
+            // Ensure currentTimerId always points to an active timer
+            React.useEffect(() => {
+                if (currentTimerId === null) {
+                    const firstActive = getFirstActiveTimer(timers);
+                    setCurrentTimerId(firstActive ? firstActive.id : null);
+                    setIsPlaying(!!firstActive);
+                } else {
+                    const currentExists = timers.some(timer => timer.id === currentTimerId && timer.status !== 'completed');
+                    if (!currentExists) {
+                        const firstActive = getFirstActiveTimer(timers);
+                        setCurrentTimerId(firstActive ? firstActive.id : null);
+                        setIsPlaying(!!firstActive);
+                    }
+                }
+            }, [timers, currentTimerId]);
+
+            React.useEffect(() => {
+                let timerInterval = null;
+                if (currentTimerId !== null) {
+                    const currentTimer = timers.find(timer => timer.id === currentTimerId);
+                    if (currentTimer && currentTimer.status !== 'completed' && isPlaying && !isEditing) {
+                        timerInterval = setInterval(() => {
+                            setTimers(prevTimers => {
+                                const newTimers = [...prevTimers];
+                                const index = newTimers.findIndex(timer => timer.id === currentTimerId);
+                                if (index !== -1) {
+                                    if (newTimers[index].remainingTime > 0) {
+                                        newTimers[index].remainingTime -= 1;
+                                    }
+                                    if (newTimers[index].remainingTime <= 0) {
+                                        newTimers[index].remainingTime = 0;
+                                        newTimers[index].status = 'completed';
+                                        // Move to next active timer
+                                        const firstActive = getFirstActiveTimer(newTimers.slice(index + 1));
+                                        if (firstActive) {
+                                            setCurrentTimerId(firstActive.id);
+                                            setIsPlaying(true);
+                                        } else {
+                                            setCurrentTimerId(null);
+                                            setIsPlaying(false);
+                                        }
+                                    }
+                                }
+                                return newTimers;
+                            });
+                        }, 1000);
+                    }
+                }
+                return () => clearInterval(timerInterval);
+            }, [currentTimerId, isPlaying, isEditing, timers]);
+
+            const togglePlayPause = () => {
+                setIsPlaying(prev => !prev);
+            };
+
+            // Handlers to manage editing state
+            const handleStartEditing = () => {
+                setIsEditing(true);
+                setIsPlaying(false);
+            };
+
+            const handleEndEditing = () => {
+                setIsEditing(false);
+                // Resume playing only if there is an active timer
+                const firstActive = getFirstActiveTimer(timers);
+                setIsPlaying(!!firstActive);
+            };
+
+            return (
+                <div className="p-4 max-w-xl mx-auto">
+                    <div ref={timersRef}>
+                        {timers.map((timer, index) => (
+                            <Timer
+                                key={timer.id}
+                                timer={timer}
+                                onDelete={() => deleteTimer(timer.id)}
+                                onUpdate={(newData) => updateTimer(timer.id, newData)}
+                                isActive={timer.id === currentTimerId}
+                                isPlaying={isPlaying && timer.id === currentTimerId}
+                                togglePlayPause={togglePlayPause}
+                                onStartEditing={handleStartEditing}
+                                onEndEditing={handleEndEditing}
+                            />
+                        ))}
+                    </div>
+                    <button
+                        onClick={addTimer}
+                        className={`mt-4 px-6 py-3 text-white rounded-full text-3xl font-bold w-full transition-colors duration-200 ${addButtonClicked ? 'bg-blue-700' : 'bg-blue-500'}`}
+                        title="Add Timer"
+                    >
+                        +
+                    </button>
+                </div>
+            );
+        }
+
+        function Timer({ timer, onDelete, onUpdate, isActive, isPlaying, togglePlayPause, onStartEditing, onEndEditing }) {
+            const [isEditingTitle, setIsEditingTitle] = React.useState(false);
+            const [isEditingTime, setIsEditingTime] = React.useState(false);
+            const [title, setTitle] = React.useState(timer.title);
+            const [timeInput, setTimeInput] = React.useState(formatTime(timer.remainingTime));
+            const timeInputRef = React.useRef(null); // Ref for the time input
+
+            // Format time in mm:ss
+            function formatTime(seconds) {
+                const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+                const s = (seconds % 60).toString().padStart(2, '0');
+                return `${m}:${s}`;
+            }
+
+            // Parse time from mm:ss to seconds
+            function parseTime(timeStr) {
+                const [m, s] = timeStr.split(':').map(Number);
+                if (isNaN(m) || isNaN(s) || m < 0 || s < 0 || s >= 60) return timer.remainingTime;
+                return m * 60 + s;
+            }
+
+            React.useEffect(() => {
+                setTitle(timer.title);
+            }, [timer.title]);
+
+            React.useEffect(() => {
+                setTimeInput(formatTime(timer.remainingTime));
+            }, [timer.remainingTime]);
+
+            // useEffect to manage selection after typing two digits
+            React.useEffect(() => {
+                if (timeInputRef.current) {
+                    if (/^\d{2}:$/.test(timeInput)) {
+                        // After typing two minutes digits, colon is added
+                        // Set cursor after colon, to start typing seconds
+                        timeInputRef.current.setSelectionRange(3, 3);
+                    } else if (/^\d{2}:\d{2}$/.test(timeInput)) {
+                        // After typing two seconds digits, select them for replacement
+                        timeInputRef.current.setSelectionRange(3, 5);
+                    }
+                }
+            }, [timeInput]);
+
+            // New useEffect to select minutes when editing starts
+            const prevEditingTime = React.useRef(isEditingTime);
+
+            React.useEffect(() => {
+                if (!prevEditingTime.current && isEditingTime) {
+                    // Just entered editing mode
+                    if (timeInputRef.current) {
+                        timeInputRef.current.setSelectionRange(0, 2);
+                    }
+                }
+                prevEditingTime.current = isEditingTime;
+            }, [isEditingTime]);
+
+            // Determine classes based on timer status and active state
+            const containerClasses = [
+                "flex items-center justify-between p-4 bg-white shadow-lg rounded-lg mb-4",
+                "border",
+                isActive && timer.status !== 'completed' ? "border-blue-500" : "border-transparent",
+                timer.status === 'completed' ? "bg-gray-200" : "",
+                "truncate"
+            ].join(" ");
+
+            const titleClasses = [
+                "text-xl font-bold cursor-pointer truncate flex-1",
+                timer.status === 'completed' ? "text-gray-500" : "text-black"
+            ].join(" ");
+
+            const timeClasses = [
+                "text-xl font-mono cursor-pointer w-24 text-right truncate",
+                timer.status === 'completed' ? "text-gray-500" : "text-black"
+            ].join(" ");
+
+            // Handlers for editing title
+            const handleTitleBlur = () => {
+                setIsEditingTitle(false);
+                if (title.trim() === "") {
+                    setTitle(timer.title); // Revert to original title if empty
+                } else {
+                    onUpdate({ title: title.trim() });
+                }
+            };
+
+            const handleTitleKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    handleTitleBlur();
+                }
+            };
+
+            // Handlers for editing time
+            const handleTimeBlur = () => {
+                setIsEditingTime(false);
+                onEndEditing(); // Notify App that editing has ended
+                const newTime = parseTime(timeInput);
+                onUpdate({ 
+                    time: newTime, 
+                    remainingTime: newTime, 
+                    status: newTime === 0 ? 'completed' : timer.status 
+                });
+            };
+
+            const handleTimeKeyPress = (e) => {
+                if (e.key === 'Enter') {
+                    handleTimeBlur();
+                }
+            };
+
+            // Handler for initiating time editing
+            const handleTimeClick = () => {
+                if (isActive && isPlaying) {
+                    onStartEditing(); // Notify App that editing has started
+                }
+                setIsEditingTime(true);
+                setTimeInput(formatTime(timer.remainingTime));
+            };
+
+            // Handler for time input changes with validation
+            const handleTimeChange = (e) => {
+                let value = e.target.value;
+                // Remove any non-digit or colon characters
+                value = value.replace(/[^\d:]/g, '');
+                // Split by colon
+                const parts = value.split(':');
+                let minutes = parts[0] || '';
+                let seconds = parts[1] || '';
+                if (minutes.length > 2) {
+                    minutes = minutes.slice(0, 2);
+                }
+                if (seconds.length > 2) {
+                    seconds = seconds.slice(0, 2);
+                }
+                // Reconstruct the value
+                if (minutes.length === 2 && parts.length === 1) {
+                    value = minutes + ':';
+                } else if (parts.length > 1) {
+                    value = minutes + ':' + seconds;
+                } else {
+                    value = minutes;
+                }
+                setTimeInput(value);
+            };
+
+            return (
+                <div className={containerClasses}>
+                    <div className="flex items-center flex-1 mr-4 min-w-0 overflow-hidden">
+                        <div className="handle cursor-grab mr-2 text-gray-500 flex-shrink-0">&#9776;</div>
+                        {isEditingTitle ? (
+                            <input
+                                type="text"
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                onBlur={handleTitleBlur}
+                                onKeyPress={handleTitleKeyPress}
+                                className="text-xl font-bold outline-none bg-transparent truncate flex-1"
+                                autoFocus
+                            />
+                        ) : (
+                            <div
+                                className={titleClasses + " order-3 md:order-1"} // Adjust order for mobile
+                                onClick={() => setIsEditingTitle(true)}
+                                title={timer.title}
+                            >
+                                {title}
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex items-center mr-2 flex-shrink-0 min-w-0 overflow-hidden">
+                        {isEditingTime ? (
+                            <input
+                                type="text"
+                                value={timeInput}
+                                onChange={handleTimeChange} // Updated onChange handler
+                                onBlur={handleTimeBlur}
+                                onKeyPress={handleTimeKeyPress}
+                                className="text-xl font-mono outline-none text-right min-w-[4rem] w-24 max-w-[6rem] bg-transparent"
+                                autoFocus
+                                maxLength={5} // Limit input length to mm:ss
+                                ref={timeInputRef} // Attach ref to input
+                            />
+                        ) : (
+                            <div
+                                className={timeClasses + " truncate order-2 md:order-2"} // Adjust order for mobile
+                                onClick={handleTimeClick}
+                                title={formatTime(timer.remainingTime)}
+                            >
+                                {formatTime(timer.remainingTime)}
+                            </div>
+                        )}
+                    </div>
+                    {isActive ? (
+                        <button
+                            onClick={togglePlayPause}
+                            className="text-blue-500 hover:text-blue-700 ml-2 flex-shrink-0 order-1 md:order-3" // Adjust order for mobile
+                            title={isPlaying ? "Pause Timer" : "Play Timer"}
+                            disabled={timer.status === 'completed'} // Disable if completed
+                        >
+                            {timer.status === 'completed' ? "✅" : (isPlaying ? "⏸️" : "▶")}
+                        </button>
+                    ) : (
+                        <button
+                            onClick={onDelete}
+                            className="text-red-500 hover:text-red-700 ml-2 flex-shrink-0 order-1 md:order-3" // Adjust order for mobile
+                            title="Delete Timer"
+                        >
+                            &times;
+                        </button>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
